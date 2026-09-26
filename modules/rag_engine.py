@@ -1,20 +1,27 @@
+import os
 import json
 import chromadb
 from sentence_transformers import SentenceTransformer
 import streamlit as st
 
+# Locate telecom_findings.json relative to project root
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+JSON_PATH = os.path.join(BASE_DIR, "telecom_findings.json")
+
 @st.cache_resource
 def get_vector_store():
-    client = chromadb.PersistentClient(path="./chroma_db")
+    client = chromadb.PersistentClient(path=os.path.join(BASE_DIR, "chroma_db"))
     collection = client.get_or_create_collection(
         name="telecom_findings",
         metadata={"hnsw:space": "cosine"}
     )
     
-    # Initialize collection if empty
     if collection.count() == 0:
-        model = SentenceTransformer("all-MiniLM-L6-v2")
-        with open("telecom_findings.json", "r", encoding="utf8") as f:
+        if not os.path.exists(JSON_PATH):
+            raise FileNotFoundError(f"Missing required file: {JSON_PATH}")
+
+        model = get_embedding_model()
+        with open(JSON_PATH, "r", encoding="utf8") as f:
             data = json.load(f)
             
         documents = data["findings"]
@@ -48,7 +55,6 @@ def retrieve_findings(observation: str, distance_threshold: float = 0.45):
         distances = results["distances"][0]
         
         for doc, dist in zip(docs, distances):
-            # Lower cosine distance = higher similarity
             if dist <= distance_threshold:
                 matched_findings.append(doc)
                 
