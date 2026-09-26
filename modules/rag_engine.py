@@ -4,27 +4,39 @@ import chromadb
 from sentence_transformers import SentenceTransformer
 import streamlit as st
 
-# Locate telecom_findings.json relative to project root
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 JSON_PATH = os.path.join(BASE_DIR, "telecom_findings.json")
+
+@st.cache_resource
+def get_embedding_model():
+    return SentenceTransformer("all-MiniLM-L6-v2")
 
 @st.cache_resource
 def get_vector_store():
     client = chromadb.PersistentClient(path=os.path.join(BASE_DIR, "chroma_db"))
     collection = client.get_or_create_collection(
-        name="telecom_findings",
+        name="telecom_findings_master",
         metadata={"hnsw:space": "cosine"}
     )
     
-    if collection.count() == 0:
-        if not os.path.exists(JSON_PATH):
-            raise FileNotFoundError(f"Missing required file: {JSON_PATH}")
+    if not os.path.exists(JSON_PATH):
+        raise FileNotFoundError(f"Missing required file: {JSON_PATH}")
 
+    with open(JSON_PATH, "r", encoding="utf8") as f:
+        data = json.load(f)
+        
+    documents = data["findings"]
+    
+    # Reload database if new findings were added to telecom_findings.json
+    if collection.count() != len(documents):
+        # Reset collection
+        client.delete_collection("telecom_findings_master")
+        collection = client.create_collection(
+            name="telecom_findings_master",
+            metadata={"hnsw:space": "cosine"}
+        )
+        
         model = get_embedding_model()
-        with open(JSON_PATH, "r", encoding="utf8") as f:
-            data = json.load(f)
-            
-        documents = data["findings"]
         ids = [str(i) for i in range(len(documents))]
         embeddings = model.encode(documents).tolist()
         
@@ -33,11 +45,8 @@ def get_vector_store():
             documents=documents,
             embeddings=embeddings
         )
+        
     return collection
-
-@st.cache_resource
-def get_embedding_model():
-    return SentenceTransformer("all-MiniLM-L6-v2")
 
 def retrieve_findings(observation: str, distance_threshold: float = 0.45):
     collection = get_vector_store()
